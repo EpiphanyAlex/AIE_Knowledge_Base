@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""把 topics/**/*.md 里的面试问答卡解析出来，生成一个 Anki 风格的 cards.html 抽认卡查看器。
+"""把 topics/**/*.md 里的面试问答卡解析出来，生成一个 Apple 风格的 cards.html 抽认卡查看器。
 
 数据源永远是 markdown；本脚本只生成"视图"。改完笔记重跑即可：
     python3 tools/build_cards.py
 
 输出：仓库根目录的 cards.html（零依赖，双击用浏览器打开）。
+设计：Apple Web 风格 + design token 体系，详见 docs/cards-redesign-prd.md。
 学习模式：一次一张卡 → 显示答案 → 重来/难/良/简单 评分，带间隔重复(SRS)，进度存浏览器 localStorage。
 """
 from __future__ import annotations
@@ -181,65 +182,98 @@ HTML_HEAD = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AIE 抽认卡</title>
 <style>
-:root{--bg:#0f1115;--panel:#181b22;--card:#1f232c;--line:#2b303b;--fg:#e6e8ec;--mut:#9aa3b2;--acc:#4f8cff;
---again:#ff6b6b;--hard:#f0a43a;--good:#2ecc71;--easy:#4f8cff;}
+:root{
+--bg:#f5f5f7;--surface:#fff;--surface-2:#e8e8ed;--surface-3:#f5f5f7;
+--text:#1d1d1f;--text-secondary:#6e6e73;--separator:#d2d2d7;
+--accent:#0071e3;--accent-hover:#0077ed;--on-accent:#fff;
+--again:#d70015;--again-bg:rgba(255,59,48,.12);--again-bg-h:rgba(255,59,48,.20);
+--hard:#9a5b00;--hard-bg:rgba(255,149,0,.14);--hard-bg-h:rgba(255,149,0,.22);
+--good:#1d7a33;--good-bg:rgba(52,199,89,.15);--good-bg-h:rgba(52,199,89,.24);
+--easy:#0058b0;--easy-bg:rgba(0,122,255,.12);--easy-bg-h:rgba(0,122,255,.20);
+--font:-apple-system,"SF Pro Text","SF Pro Display","Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;
+--fs-xs:12px;--fs-sm:14px;--fs-base:17px;--fs-lg:21px;--fs-xl:28px;
+--fw-regular:400;--fw-medium:500;--fw-semibold:600;--tracking-tight:-0.02em;
+--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-8:48px;--space-10:64px;
+--radius-sm:8px;--radius-md:12px;--radius-lg:18px;--radius-xl:24px;--radius-pill:980px;
+--shadow-sm:0 1px 3px rgba(0,0,0,.06);--shadow-md:0 4px 20px rgba(0,0,0,.08);
+--ease:cubic-bezier(.4,0,.2,1);--dur-fast:150ms;--dur:250ms;
+}
+@media (prefers-color-scheme:dark){:root{
+--bg:#000;--surface:#1c1c1e;--surface-2:#2c2c2e;--surface-3:#2c2c2e;
+--text:#f5f5f7;--text-secondary:#98989d;--separator:#38383a;
+--accent:#2997ff;--accent-hover:#47a6ff;
+--again:#ff6961;--hard:#ffb340;--good:#30d158;--easy:#64a8ff;
+--shadow-sm:0 1px 3px rgba(0,0,0,.4);--shadow-md:0 4px 24px rgba(0,0,0,.5);
+}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.65 -apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,sans-serif}
-header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line);padding:12px 16px}
-.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.bar>strong{font-size:16px;margin-right:4px}
-select,button{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:13px;cursor:pointer}
-.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.seg button{border:0;border-right:1px solid var(--line);border-radius:0}
-.seg button:last-child{border-right:0}
-.seg button.on{background:var(--acc);color:#fff}
-.stats{margin-left:auto;color:var(--mut);font-size:13px}.stats b{color:var(--fg)}
+html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:var(--fs-base);line-height:1.55}
 .hidden{display:none}
-#study{max-width:680px;margin:34px auto;padding:0 16px}
-.scard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
-.badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
-.badge{font-size:11px;color:var(--mut);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:2px 9px}
-.q{font-size:19px;font-weight:600;line-height:1.5}
-.q .zh{display:block;color:var(--mut);font-weight:500;font-size:16px;margin-top:6px}
-.ans{border-top:1px dashed var(--line);margin-top:16px;padding-top:14px}
-.ans h4{margin:14px 0 4px;font-size:12px;color:var(--acc);text-transform:uppercase;letter-spacing:.04em}
+header{position:sticky;top:0;z-index:50;border-bottom:1px solid var(--separator);
+background:var(--bg);background:color-mix(in srgb,var(--bg) 82%,transparent);
+backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px)}
+.bar{display:flex;flex-wrap:wrap;gap:var(--space-3);align-items:center;max-width:1100px;margin:0 auto;padding:var(--space-3) var(--space-5)}
+.brand{font-size:var(--fs-base);font-weight:var(--fw-semibold);letter-spacing:var(--tracking-tight)}
+.stats{margin-left:auto;color:var(--text-secondary);font-size:var(--fs-sm)}
+.stats b{color:var(--text);font-weight:var(--fw-medium)}
+select{appearance:none;-webkit-appearance:none;background:var(--surface);color:var(--text);border:1px solid var(--separator);border-radius:var(--radius-sm);padding:6px 30px 6px 12px;font-size:var(--fs-sm);font-family:inherit;cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236e6e73' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
+button{font-family:inherit;cursor:pointer}
+.seg{display:inline-flex;background:var(--surface-2);border-radius:var(--radius-sm);padding:2px;gap:2px}
+.seg button{border:0;background:transparent;color:var(--text);border-radius:7px;padding:5px 13px;font-size:var(--fs-sm);font-weight:var(--fw-medium);transition:background var(--dur-fast) var(--ease)}
+.seg button.on{background:var(--surface);box-shadow:var(--shadow-sm)}
+.ghost{border:1px solid var(--separator);background:var(--surface);color:var(--text);border-radius:var(--radius-sm);padding:6px 13px;font-size:var(--fs-sm);transition:background var(--dur-fast) var(--ease)}
+.ghost:hover{background:var(--surface-2)}
+#study{max-width:600px;margin:var(--space-10) auto;padding:0 var(--space-5)}
+.scard{background:var(--surface);border:1px solid var(--separator);border-radius:var(--radius-xl);padding:var(--space-8);box-shadow:var(--shadow-md)}
+.badges{display:flex;gap:var(--space-2);flex-wrap:wrap;margin-bottom:var(--space-5)}
+.badge{font-size:var(--fs-xs);color:var(--text-secondary);background:var(--surface-3);border-radius:var(--radius-pill);padding:3px 11px}
+.q{font-size:var(--fs-xl);font-weight:var(--fw-semibold);letter-spacing:var(--tracking-tight);line-height:1.25}
+.q .zh{display:block;font-size:var(--fs-lg);font-weight:var(--fw-regular);color:var(--text-secondary);letter-spacing:normal;margin-top:var(--space-2)}
+.ans{border-top:1px solid var(--separator);margin-top:var(--space-5);padding-top:var(--space-5);font-size:var(--fs-base)}
+.ans h4{margin:var(--space-5) 0 var(--space-2);font-size:var(--fs-sm);font-weight:var(--fw-semibold);color:var(--text-secondary)}
 .ans h4:first-child{margin-top:0}
-.ans ul{margin:4px 0;padding-left:18px}.ans p{margin:4px 0}
-.ans code{background:var(--panel);padding:1px 5px;border-radius:4px;font-size:12px}
-.actions{margin-top:20px}
-.reveal{width:100%;padding:13px;font-size:15px;background:var(--acc);color:#fff;border-color:var(--acc)}
-.reveal small{opacity:.8;font-size:11px;margin-left:6px}
-.grades{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.grades button{display:flex;flex-direction:column;gap:2px;padding:11px 4px;font-size:14px;font-weight:600}
-.grades small{font-weight:500;font-size:11px;opacity:.85}
-.g-again{background:var(--again);border-color:var(--again);color:#2a0606}
-.g-hard{background:var(--hard);border-color:var(--hard);color:#2a1c06}
-.g-good{background:var(--good);border-color:var(--good);color:#06210f}
-.g-easy{background:var(--easy);border-color:var(--easy);color:#fff}
-.done{text-align:center;color:var(--mut);padding:50px 10px}
-.done .big{font-size:22px;color:var(--fg);margin-bottom:18px}
-.done button{padding:11px 18px;background:var(--acc);color:#fff;border-color:var(--acc)}
-#browse{max-width:1100px;margin:20px auto;padding:0 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
-#browse .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
-#browse .q{font-size:15px}#browse .q .zh{font-size:14px}
-#browse details{margin-top:10px}
-#browse summary{cursor:pointer;color:var(--acc);font-size:13px}
-#browse .ans{margin-top:10px}
-.empty{grid-column:1/-1;text-align:center;color:var(--mut);padding:40px}
+.ans ul{margin:var(--space-2) 0;padding-left:1.2em}.ans li{margin:3px 0}
+.ans p{margin:var(--space-2) 0}
+.ans code{background:var(--surface-3);padding:1px 6px;border-radius:6px;font-size:.9em}
+.actions{margin-top:var(--space-6)}
+.reveal{width:100%;background:var(--accent);color:var(--on-accent);border:0;border-radius:var(--radius-pill);padding:13px;font-size:var(--fs-base);font-weight:var(--fw-medium);transition:background var(--dur-fast) var(--ease)}
+.reveal:hover{background:var(--accent-hover)}
+.reveal small{opacity:.7;font-size:var(--fs-xs);margin-left:var(--space-2)}
+.grades{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--space-2)}
+.grades button{display:flex;flex-direction:column;gap:2px;border:0;border-radius:var(--radius-md);padding:12px 4px;font-size:var(--fs-sm);font-weight:var(--fw-semibold);transition:background var(--dur-fast) var(--ease)}
+.grades small{font-weight:var(--fw-regular);font-size:var(--fs-xs);opacity:.85}
+.g-again{background:var(--again-bg);color:var(--again)}.g-again:hover{background:var(--again-bg-h)}
+.g-hard{background:var(--hard-bg);color:var(--hard)}.g-hard:hover{background:var(--hard-bg-h)}
+.g-good{background:var(--good-bg);color:var(--good)}.g-good:hover{background:var(--good-bg-h)}
+.g-easy{background:var(--easy-bg);color:var(--easy)}.g-easy:hover{background:var(--easy-bg-h)}
+.done{text-align:center;color:var(--text-secondary);padding:var(--space-10) var(--space-4)}
+.done svg{width:46px;height:46px;color:var(--good);margin-bottom:var(--space-4)}
+.done .big{font-size:var(--fs-lg);font-weight:var(--fw-semibold);color:var(--text);margin-bottom:var(--space-5)}
+.done .ghost{padding:10px 18px}
+#browse{max-width:1100px;margin:var(--space-6) auto;padding:0 var(--space-5);display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:var(--space-4)}
+#browse .card{background:var(--surface);border:1px solid var(--separator);border-radius:var(--radius-lg);padding:var(--space-5);box-shadow:var(--shadow-sm)}
+#browse .q{font-size:var(--fs-base)}#browse .q .zh{font-size:var(--fs-sm)}
+#browse details{margin-top:var(--space-3)}
+#browse summary{cursor:pointer;color:var(--accent);font-size:var(--fs-sm);list-style:none}
+#browse summary::-webkit-details-marker{display:none}
+#browse .ans{margin-top:var(--space-3)}
+.empty{grid-column:1/-1;text-align:center;color:var(--text-secondary);padding:var(--space-10)}
 .lang-en .zh,.lang-en .ans-zh{display:none}
 .lang-zh .en,.lang-zh .ans-en{display:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
 <body>
 <header><div class="bar">
-<strong>AIE 抽认卡</strong>
+<span class="brand">AIE 抽认卡</span>
 <div class="seg" id="mode"><button data-m="study" class="on">学习</button><button data-m="browse">浏览</button></div>
-<select id="fDomain"><option value="">全部领域</option></select>
-<select id="fTopic"><option value="">全部主题</option></select>
-<select id="fDiff"><option value="">全部难度</option></select>
+<select id="fDomain" aria-label="按领域筛选"><option value="">全部领域</option></select>
+<select id="fTopic" aria-label="按主题筛选"><option value="">全部主题</option></select>
+<select id="fDiff" aria-label="按难度筛选"><option value="">全部难度</option></select>
 <div class="seg" id="lang"><button data-l="both" class="on">中英</button><button data-l="en">EN</button><button data-l="zh">中</button></div>
 <span class="stats" id="stats"></span>
-<button id="reset">重置进度</button>
+<button id="reset" class="ghost">重置进度</button>
 </div></header>
 <main id="study"></main>
 <main id="browse" class="hidden"></main>
@@ -315,8 +349,10 @@ function renderStudy(){
   updateStats();
   if(!session.length){
     const any = filtered().length;
-    wrap.innerHTML = `<div class="done"><div class="big">🎉 ${studyAll?'全部过完了':'这组今天复习完了'}</div>`
-      + (any?`<button id="againAll">${studyAll?'再过一遍':'无视进度 · 全部再学一遍'}</button>`:'<p>没有卡片，换个筛选试试。</p>')
+    wrap.innerHTML = `<div class="done">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 12l3 3 5-6"></path></svg>
+      <div class="big">${studyAll?'全部过完了':'这组今天复习完了'}</div>`
+      + (any?`<button id="againAll" class="ghost">${studyAll?'再过一遍':'无视进度 · 全部再学一遍'}</button>`:'<p>没有卡片，换个筛选试试。</p>')
       + `</div>`;
     const b=$('#againAll'); if(b) b.onclick=()=>{ studyAll=true; buildSession(); renderStudy(); };
     return;
