@@ -54,6 +54,8 @@ AIE/
 ├── README.md                    # 这是什么 + 怎么用（命令速查）
 ├── design.md                    # 本设计文档
 ├── syllabus.md                  # 大纲 + 进度看板（一张表）
+├── cards.html                   # 生成的 Anki 风格抽认卡查看器（视图，勿手改）
+├── tools/build_cards.py         # 从 topics/ 生成 cards.html
 ├── topics/
 │   ├── llm/                     # 01-transformer.md, 02-attention.md ...
 │   └── systems/                 # 01-serving.md, 02-latency.md ...
@@ -302,6 +304,17 @@ planned ──add-topic──▶ drafted ──用户润色+核验──▶ poli
 2. 看 `interviews/` 记录与看板薄弱点，回头补强对应主题。
 
 ---
+
+## 12.5 抽认卡视图（cards.html，Anki 风格）
+
+为了比 raw markdown 更直观地刷题，提供一个**生成式的 HTML 抽认卡视图**。**markdown 仍是唯一数据源**，HTML 只是视图。
+
+- **生成**：`python3 tools/build_cards.py` 读 `topics/**/*.md`，解析问答卡，输出自包含的 `cards.html`（零依赖，双击用浏览器打开）。改完笔记重跑即可。
+- **解析**：按 note-format 提取 frontmatter（topic/domain/difficulty）+ 每张卡的 `问题(中英) / Answer(EN) / 核心答案(中) / 追问 / 误区`。
+- **学习模式（Anki 风格）**：一次一张卡 → 显示答案（空格）→ 按 **重来 / 难 / 良 / 简单**（键 1–4）评分；用简化 SM-2 间隔重复(SRS)调度，进度存浏览器 `localStorage`（不写回仓库）。
+- **浏览模式**：网格列出全部卡，可展开看答案。
+- **筛选**：按 领域 / 主题 / 难度；语言 中英 / EN / 中 切换。
+- **边界**：`cards.html` 是生成产物、**不要手改**；SRS 进度只在浏览器本地，跨设备不同步（够用；要跨端再考虑 Phase 2 的 Anki 导出）。
 
 ## 13. Phase 2 展望（可选，暂不实现）
 

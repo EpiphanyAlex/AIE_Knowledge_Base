@@ -21,6 +21,8 @@ AIE/
 ├── README.md          # 怎么用
 ├── design.md          # 完整设计说明（权威）
 ├── syllabus.md        # 大纲 + 进度看板
+├── cards.html         # 生成的 Anki 风格抽认卡查看器（视图，勿手改）
+├── tools/build_cards.py  # 从 topics/ 生成 cards.html 的脚本
 ├── topics/
 │   ├── llm/           # LLM/GenAI 主题笔记
 │   └── systems/       # AI 系统工程主题笔记
@@ -29,6 +31,8 @@ AIE/
     ├── rules/note-format.md      # 详细笔记格式规范
     └── skills/{add-topic,interview}/
 ```
+
+> **markdown 是唯一数据源**；`cards.html` 是从 `topics/` 生成的视图，**不要手改**。改完任何笔记后重新生成：`python3 tools/build_cards.py`。
 
 ## Critical Rules（铁律，勿违反）
 
@@ -40,6 +44,7 @@ AIE/
 | 英文用词简单 + 保留术语 | 短句常用词，只有专业术语用英文标准写法 |
 | 文件名数字前缀、不加日期 | `02-attention.md`（不要 `2026-06-14-attention.md`）|
 | 改完内容必须更新看板 | 同步 `syllabus.md` |
+| 改完笔记重新生成卡片 | `python3 tools/build_cards.py`（`cards.html` 是视图，勿手改）|
 | status 按生命周期流转 | `planned → drafted → polished` |
 
 ## 准确性协议（精简版）
@@ -71,3 +76,4 @@ AIE/
 | 完整设计 | `@design.md` |
 | 起草新主题 | skill `add-topic` |
 | 模拟面试 / 复习 | skill `interview` |
+| 抽认卡复习（浏览器）| 跑 `python3 tools/build_cards.py` 后打开 `cards.html` |

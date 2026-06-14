@@ -25,7 +25,8 @@ description: Use when adding or drafting a new topic note for the AIE interview 
 5. **准确性协议**（见 CLAUDE.md / design.md 第 7 节）：版本 / 数字 / 最新进展类内容标 `⚠️待核实` 或注明时间；不确定不编造；必要时用 `context7`（库文档）或 web 查证后再写。
 6. **写文件**：`topics/<domain>/NN-slug.md`，frontmatter `status: drafted`。
 7. **更新看板**：把 `syllabus.md` 对应行的"内容状态"改为 `drafted`。
-8. **过完成清单**（见 CLAUDE.md），然后提示用户润色；润色完由用户把 status 改 `polished`。
+8. **重新生成抽认卡**：跑 `python3 tools/build_cards.py`，让新卡进入 `cards.html`。
+9. **过完成清单**（见 CLAUDE.md），然后提示用户润色；润色完由用户把 status 改 `polished`。
 
 ## 注意
 - **不要直接标 `polished`** —— 那是人工润色 + 核验后的状态。

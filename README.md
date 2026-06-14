@@ -16,12 +16,15 @@
 | 润色草稿 | 读 `topics/` 下的草稿，改完把 frontmatter `status` 改为 `polished` |
 | 模拟面试 | 跑 skill `interview` → 选**模拟面试**模式（英文问答 + 中文讲评）|
 | 快速复习 | 跑 skill `interview` → 选**快速复习**模式（按掌握度刷卡）|
+| 抽认卡刷题（浏览器）| 跑 `python3 tools/build_cards.py`，双击打开 `cards.html` —— Anki 风格：一次一张卡、显示答案、按 重来/难/良/简单 评分，带间隔重复 |
 | 看进度 / 薄弱点 | 看 `syllabus.md` 看板 |
 
 ## 目录
 
 - `topics/llm/`、`topics/systems/` — 主题笔记
 - `syllabus.md` — 大纲 + 进度看板
+- `cards.html` — 生成的 Anki 风格抽认卡（视图，勿手改）
+- `tools/build_cards.py` — 从 `topics/` 生成 `cards.html`
 - `interviews/` — 模拟面试记录
 - `design.md` — 完整设计说明
 - `CLAUDE.md` — Claude 工作规范

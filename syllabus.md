@@ -7,8 +7,8 @@
 
 | # | 主题 | 文件 | 难度 | 内容状态 | 掌握度 | 薄弱点 | 上次复习 |
 |---|------|------|------|----------|--------|--------|----------|
-| 1 | Transformer 架构总览 | llm/01-transformer.md | 基础 | planned | - | - | - |
-| 2 | Attention | llm/02-attention.md | 基础 | drafted | - | - | - |
+| 1 | Transformer 架构总览 | llm/01-transformer.md | 基础 | drafted | 🟡 | 漏 attention 核心词、并行/长距离优势 | 2026-06-14 |
+| 2 | Attention | llm/02-attention.md | 基础 | drafted | 🟡 | Q/K/V 计算步骤、self 含义、为何需要 | 2026-06-14 |
 | 3 | Tokenization & Embeddings | llm/03-tokenization-embeddings.md | 基础 | planned | - | - | - |
 | 4 | 预训练与训练目标 | llm/04-pretraining-objectives.md | 基础 | planned | - | - | - |
 | 5 | 解码与采样策略 | llm/05-decoding-sampling.md | 基础 | planned | - | - | - |
