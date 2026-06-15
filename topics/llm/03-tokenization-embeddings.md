@@ -4,7 +4,7 @@ domain: llm
 difficulty: 基础
 status: drafted
 prerequisites: []
-tags: [tokenization, embeddings, BPE, subword, vocabulary]
+tags: [tokenization, embeddings, BPE, WordPiece, Unigram, subword, vocabulary, embedding-models]
 ---
 
 # Tokenization & Embeddings
@@ -34,10 +34,13 @@ tags: [tokenization, embeddings, BPE, subword, vocabulary]
 - 任何词都能用这些片段拼出来——常见词一个 token 搞定，没见过的词拆成已知子词（比如 `tokenization` → `token` + `ization`）。
 - 这样**几乎不会真正 OOV**，同时词表大小可控（通常几万级别）。
 
-**4. 三种主流 subword 算法（了解差异即可）**
-- **BPE（Byte-Pair Encoding）**：从字符开始，反复把"出现最频繁的相邻对"合并成新 token，直到词表达到目标大小。GPT 系列用的就是 BPE 的变体（byte-level BPE）。
-- **WordPiece**：思路类似 BPE，但合并时不是按频率，而是按"哪种合并最能提升语言模型似然"来选。BERT 用的是 WordPiece。
-- **SentencePiece**：是一个**工具/框架**，直接在原始文本上训练（把空格也当普通字符），不依赖预先按空格分词，对中文、日文等没有空格的语言更友好。它内部可以用 BPE 或 unigram 算法。
+**4. 主流 subword 算法（了解差异即可）**
+- **BPE（Byte-Pair Encoding）**：从字符开始，反复把"出现最频繁的相邻对"合并成新 token，直到词表达到目标大小（**自底向上、按频率合并**）。GPT 系列、Llama、Mistral、Qwen 等用的就是 BPE 的变体（byte-level BPE）。
+- **WordPiece**：思路类似 BPE，但合并时不是按频率，而是按"哪种合并最能提升语言模型似然（likelihood）"来选。BERT 系列用的是 WordPiece。
+- **Unigram**：方向相反——**自顶向下**。先建一个很大的候选词表，再反复**剪掉**那些"删了对整体似然损失最小"的 token，直到目标大小。它是概率式的（每个 token 带概率），训练时还能采样不同切法做数据增强。T5、ALBERT、Gemma 等用 Unigram。
+- **SentencePiece** 不是算法，是个**工具/库**：直接在原始文本上训练（把空格也当普通字符 `▁`），不依赖预先按空格分词，对中文、日文等没空格的语言友好；内部可装 BPE 或 Unigram 算法。同类工具还有 OpenAI 的 **tiktoken**（GPT 词表、推理快）和 Hugging Face **`tokenizers`**（可训练 + 可部署）。
+
+> **工程坑：tokenizer drift（分词器漂移）**——训练用的是词表 A，部署时却加载了词表 B，同一段文本切出的 token ID 完全不同，模型会输出乱码。务必保证训练与推理用**同一个 tokenizer**。
 
 **5. vocabulary（词表）**
 词表就是"所有 token → 整数 ID"的固定映射表，模型训练前就定好、之后不变。
@@ -61,6 +64,16 @@ embedding 是把**离散符号映射到连续向量空间**的一层。模型里
 - **token embedding**：LLM **内部**的查表层，针对**单个 token**，是模型前向计算的第一步。
 - **句向量 / 文本 embedding（text / sentence embedding）**：把**一整段文本**压成**一个**向量，用于**检索 / 相似度 / 聚类**（如 RAG、语义搜索）。通常由专门的 embedding 模型产出，常做归一化后用 cosine similarity 比较。
 - 一句话区分：token embedding 是"模型内部理解每个词"，文本 embedding 是"对外表示整段话用来比对"。
+
+**9. 怎么选文本 embedding 模型（检索 / RAG 用）**
+做检索时"用哪个 embedding 模型"是个要决策的点，常看这几个维度：
+- **表示类型**：
+  - **dense（稠密，默认）**：每段文本压成一个定长向量（常见 384–3072 维），每一维都携带信息，用 cosine 比相似度。绝大多数 RAG 用 dense。
+  - **sparse（稀疏）**：学出来的"每个词的权重"，类似 BM25 的词面精确匹配，擅长关键词强、专有名词多的查询。
+  - **multi-vector（多向量，如 ColBERT 的 late interaction）**：每个 token 一个向量，检索时做 MaxSim。长查询 / 专业领域更准，但存储和计算更贵。（有的模型如 BGE-M3 能一次同时产出 dense + sparse + multi-vector。）
+- **维度与存储**：维度越高一般越准但越占存储、越慢。有的模型支持 **Matryoshka** 截断（把高维向量截到更低维仍可用），用少量精度换大幅存储下降（**具体损失随模型 / 数据而定，⚠️待核实**）。
+- **相似度度量**：**cosine** 是默认（只看方向不看长度——一句话和一篇长文方向一致也能打 1.0）；向量归一化后 **dot product** 排序与 cosine 等价；聚类有时用欧氏距离。
+- **别只看榜**：**MTEB** 这类公开榜单是"必要但不充分"的参考；落地前**一定用你自己的真实查询做小规模评测**再定。
 
 ## 面试问答卡
 
@@ -109,21 +122,24 @@ embedding 是把**离散符号映射到连续向量空间**的一层。模型里
 **常见误区 (中):**
 - 以为 subword 能把任意输入变得有意义；它只是保证"可表示"，拆出的片段不一定语义干净。
 
-### Q4. Compare BPE, WordPiece, and SentencePiece. / 对比一下 BPE、WordPiece、SentencePiece。
+### Q4. Compare BPE, WordPiece, and Unigram (and where does SentencePiece fit)? / 对比 BPE、WordPiece、Unigram（SentencePiece 又算什么）？
 **难度:** 进阶
 **Answer (EN):**
-- BPE starts from characters and repeatedly merges the most frequent adjacent pair until the vocabulary is full. GPT-style models use a byte-level BPE.
-- WordPiece is similar, but it merges the pair that most improves the language model likelihood, not just raw frequency. BERT uses WordPiece.
-- SentencePiece is a tool that trains directly on raw text (treating spaces as normal characters), so it works well for languages without spaces like Chinese. It can use BPE or unigram inside.
+- BPE starts from characters and repeatedly merges the most frequent adjacent pair until the vocab is full — bottom-up, frequency-driven. GPT-style models, Llama, Mistral, Qwen use byte-level BPE.
+- WordPiece is similar, but merges the pair that most improves the language-model likelihood, not raw frequency. BERT uses WordPiece.
+- Unigram goes the other way: start from a big vocab and prune the tokens that hurt likelihood the least — top-down, probabilistic. T5, ALBERT, Gemma use Unigram.
+- SentencePiece is not an algorithm but a tool/library that trains on raw text (spaces become normal characters), good for languages without spaces; it can run BPE or Unigram inside.
 **核心答案 (中):**
-- BPE：从字符开始，反复合并"最高频的相邻对"直到词表填满；GPT 系列用 byte-level BPE。
-- WordPiece：类似 BPE，但按"哪种合并最能提升语言模型似然"来选，而非纯频率；BERT 用 WordPiece。
-- SentencePiece：一个直接在原始文本上训练的工具（把空格也当普通字符），对中文这类没空格的语言友好；内部可用 BPE 或 unigram。
+- BPE：从字符开始，反复合并"最高频的相邻对"直到词表填满——自底向上、按频率。GPT 系列、Llama、Mistral、Qwen 用 byte-level BPE。
+- WordPiece：类似 BPE，但按"哪种合并最能提升语言模型似然"选，而非纯频率；BERT 用 WordPiece。
+- Unigram：方向相反，自顶向下——先建大词表，再剪掉"删了损失最小"的 token；概率式。T5、ALBERT、Gemma 用 Unigram。
+- SentencePiece 不是算法，是个**工具/库**，直接在原文上训练（空格当普通字符），适合没空格的语言；内部可跑 BPE 或 Unigram。
 **追问 / 深入 (中):**
 - 追问"byte-level 是什么意思？" → 在字节（byte）而非字符上做 BPE，任何 Unicode 字符都能被表示，彻底避免未知字符。
+- 追问"工程上最容易踩的坑？" → **tokenizer drift**：训练和推理用了不同词表，token ID 对不上，模型输出乱码——必须训练 / 部署用同一个 tokenizer。
 **常见误区 (中):**
-- 以为 SentencePiece 是一种算法；它是个框架/工具，里面可以装 BPE 或 unigram 这些算法。
-- 把三者当成完全不同的思路；BPE 和 WordPiece 都是"自底向上合并"，差别主要在合并的选择标准。
+- 以为 SentencePiece 是一种算法；它是个框架/工具，里面可以装 BPE 或 Unigram。
+- 把 BPE 和 Unigram 当成同一类；BPE 是自底向上**合并**，Unigram 是自顶向下**剪枝**，方向相反。
 
 ### Q5. Why do token counts matter for cost and context window? / 为什么 token 数对成本和上下文窗口很重要？
 **难度:** 进阶
@@ -158,6 +174,24 @@ embedding 是把**离散符号映射到连续向量空间**的一层。模型里
 - 以为把 token embedding 取平均就等于句向量；专门的文本 embedding 模型效果通常好很多。
 - 混淆两者用途：一个是模型"内部理解词"，一个是"对外表示整段话用来比对"。
 
+### Q7. How do you choose a text embedding model for retrieval/RAG? / 检索 / RAG 时怎么选文本 embedding 模型？
+**难度:** 进阶
+**Answer (EN):**
+- Pick the representation: dense (one vector, the default for most RAG), sparse (BM25-like keyword precision), or multi-vector / late interaction like ColBERT (one vector per token, more accurate on long queries but heavier).
+- Watch the dimension: higher dims often help accuracy but cost storage and speed; some models support Matryoshka truncation to trade a little accuracy for big storage savings.
+- Use cosine similarity by default; normalize vectors so dot product gives the same ranking.
+- Don't just trust a leaderboard like MTEB — always benchmark on your own real queries before committing.
+**核心答案 (中):**
+- 先定表示类型：dense（一个向量，多数 RAG 默认）、sparse（类似 BM25 的关键词精确匹配）、或 multi-vector / late interaction（如 ColBERT，每 token 一个向量，长查询更准但更重）。
+- 关注维度：维度高常更准，但更占存储、更慢；有的模型支持 Matryoshka 截断，用少量精度换大幅存储下降。
+- 相似度默认用 cosine；向量归一化后 dot product 排序等价。
+- 别只信 MTEB 之类榜单——落地前一定用自己的真实查询实测再定。
+**追问 / 深入 (中):**
+- 追问"dense 和 sparse 怎么选 / 能不能一起用？" → 关键词强、要精确命中术语时 sparse 好；语义相近但措辞不同时 dense 好；实际常做 **hybrid（两者结合）**，详见 RAG 进阶。
+**常见误区 (中):**
+- 以为 embedding 维度越高一定越好；维度高也更占存储、更慢，要权衡。
+- 以为 MTEB 排名高就最适合你的数据；榜单只是参考，必须在自己场景上评测。
+
 ## 速记 / 口述版（EN 为主 + 中文对照）
 > 面试能脱口而出的英文短稿，每句配中文
 - (EN) "Tokenization splits text into tokens, and each token gets an integer ID, because the model only works with numbers."
@@ -172,8 +206,11 @@ embedding 是把**离散符号映射到连续向量空间**的一层。模型里
   (中) embedding 把离散 token 映射到连续向量，含义相近的在空间里靠得近。
 - (EN) "A token embedding is inside the model, per token. A text embedding represents a whole text as one vector for search and retrieval."
   (中) token embedding 在模型内部、针对单个 token；文本 embedding 把整段话表示成一个向量，用于搜索和检索。
+- (EN) "For retrieval, pick the embedding model on your own queries, not just a leaderboard. Dense vectors with cosine similarity are the common default."
+  (中) 做检索时，用你自己的查询来挑 embedding 模型，别只看榜单。dense 向量 + cosine 相似度是常见默认。
 
 ## 延伸阅读
 - *Neural Machine Translation of Rare Words with Subword Units*（Sennrich et al., 2016）—— 把 BPE 引入 NLP 的原论文。
 - SentencePiece（Google 开源库）官方仓库与论文 *SentencePiece: A simple and language independent subword tokenizer*（Kudo & Richardson, 2018）。
 - OpenAI tiktoken / Hugging Face `tokenizers` 文档 —— 实际查看不同模型如何切 token、如何估算 token 数（⚠️待核实具体经验比例，建议用对应模型 tokenizer 实测）。
+- *ai-engineering-from-scratch*（rohitg00）Phase 5 `19-subword-tokenization` / `22-embedding-models-deep-dive`、Phase 11 `04-embeddings` —— subword 算法（含 Unigram）、embedding 模型选型与相似度度量。本次加料已对照该仓库内容核对。

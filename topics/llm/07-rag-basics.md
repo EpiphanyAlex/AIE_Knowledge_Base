@@ -4,7 +4,7 @@ domain: llm
 difficulty: 基础
 status: drafted
 prerequisites: [tokenization-embeddings]
-tags: [RAG, retrieval, embeddings, vector-search, chunking]
+tags: [RAG, retrieval, embeddings, vector-search, chunking, recursive-chunking, recall-at-k]
 ---
 
 # RAG 基础
@@ -47,6 +47,14 @@ RAG 的思路像"开卷考试"：答题前先去资料库里**翻出相关的几
 - **块太大**：一个 chunk 塞进太多内容，向量"语义被稀释"，检索不准；还占 context 长度。
 - **块太小**：单块信息不完整，可能把一句话/一个概念切断，检索到也讲不清楚。
 - 常见做法是**按语义边界切（段落、标题）**并让相邻块**有重叠（overlap）**，避免边界处的信息被切散。具体多大合适要看文档和场景，需要实验调。
+
+**常见 chunking 策略 + 一个能起步的默认值**
+- **fixed（定长）**：按固定 token 数硬切，简单但常切断句子。
+- **recursive（递归）**：按层级分隔符切（先 `\n\n` 段落，再 `\n`、句号、空格），尽量不破坏结构——**工程上常用的默认**。
+- **semantic（语义）**：在"相邻句子语义明显变化"处切，更贴内容但更慢。
+- **parent-document**：用小块检索、命中后回取所属大块当上下文，兼顾"检索准"和"上下文全"。
+- **起步默认**：先用 **recursive、约 512 tokens** 起步，再用 **recall@k**（前 k 个里有没有命中正确内容）在自己数据上量着调。
+- **overlap**：传统建议留少量重叠防边界切散，但**有较新实验质疑其收益**、且会翻倍索引成本——属"默认留一点、值得用 ablation 验证"，非铁律（⚠️待核实：最优 overlap 随数据 / 检索器变化）。
 
 **7. RAG vs fine-tuning：什么时候用哪个**
 - **RAG**：擅长"**注入知识 / 事实**"，尤其是**经常变、量大、要溯源**的知识（文档问答、知识库、最新资料）。改知识只改库，不动模型。
@@ -116,7 +124,7 @@ RAG 的思路像"开卷考试"：答题前先去资料库里**翻出相关的几
 - 常见做法：按语义边界（段落 / 标题）切，并让相邻块有 overlap。
 **追问 / 深入 (中):**
 - 追问"overlap 有什么用？" → 防止关键信息正好落在两块交界被切散，重叠能让边界信息在某块里完整出现。
-- 追问"块多大合适？" → 没有万能值，取决于文档和场景，要实验调 ⚠️待核实（具体 token 数视 embedding 模型和数据而定）。
+- 追问"块多大合适？" → 没有万能值。工程上常用 **recursive 切分、约 512 tokens** 起步，再用 recall@k 在自己数据上量着调；最优随 embedding 模型和数据而变（⚠️待核实具体 token 数）。
 **常见误区 (中):**
 - 以为块越小检索越准；太小会丢上下文，反而答不全，是个权衡。
 
@@ -155,6 +163,23 @@ RAG 的思路像"开卷考试"：答题前先去资料库里**翻出相关的几
 - 以为 fine-tuning 能"教会模型新事实"且可靠记住；它更擅长改行为，灌入大量事实易遗忘且更新麻烦。
 - 把两者当二选一；很多生产系统是两者结合。
 
+### Q7. How would you chunk documents for RAG? / RAG 里你会怎么对文档做 chunking？
+**难度:** 进阶
+**Answer (EN):**
+- Pick a strategy: fixed-size (simple but cuts sentences), recursive (split on paragraph → line → sentence boundaries; a common default), semantic (split where meaning shifts), or parent-document (retrieve small chunks, return the larger parent for context).
+- A sane starting point is recursive splitting at about 512 tokens, then tune by measuring recall@k on your own data.
+- Overlap between chunks is the traditional advice to avoid cutting information at boundaries, but its benefit is debated, so verify with an ablation instead of assuming it helps.
+- There is no universal chunk size — it depends on the documents, the queries, and the embedding model.
+**核心答案 (中):**
+- 先选策略：fixed（定长，简单但切句）、recursive（按段落→行→句子边界切，常用默认）、semantic（语义变化处切）、parent-document（小块检索、回取大块做上下文）。
+- 起步可用 **recursive、约 512 tokens**，再用 **recall@k** 在自己数据上调。
+- 相邻块 overlap 是传统建议（防边界切散），但收益有争议，最好用 ablation 验证而非默认有用。
+- 没有万能块大小——取决于文档、查询和 embedding 模型。
+**追问 / 深入 (中):**
+- 追问"怎么评估切得好不好？" → 用 recall@k（前 k 个检索结果里有没有命中含答案的块）等检索指标，在一小批真实查询上量着比，而不是凭感觉。
+**常见误区 (中):**
+- 以为有"标准 chunk 大小"照搬就行；必须在自己的数据和查询上实测调。
+
 ## 速记 / 口述版（EN 为主 + 中文对照）
 > 面试能脱口而出的英文短稿，每句配中文
 - (EN) "RAG means the model retrieves relevant text first, then generates the answer using it — like an open-book exam."
@@ -165,6 +190,8 @@ RAG 的思路像"开卷考试"：答题前先去资料库里**翻出相关的几
   (中) 流程是 retrieve、augment、generate。离线切块、embedding、入库；在线把问题向量化并检索 top-k。
 - (EN) "Chunk size is a trade-off: too big dilutes meaning, too small loses context, so we split on semantic boundaries with overlap."
   (中) chunk 大小是权衡：太大稀释语义，太小丢上下文，所以按语义边界切并加 overlap。
+- (EN) "For chunking, recursive splitting around 512 tokens is a good start; then tune by measuring recall@k on your own data."
+  (中) chunking 可用 recursive、约 512 tokens 起步，再用 recall@k 在自己数据上调。
 - (EN) "Use RAG to add knowledge; use fine-tuning to change behavior or style. They can be combined."
   (中) 注入知识用 RAG，改行为 / 风格用 fine-tuning，两者可结合。
 
@@ -172,3 +199,4 @@ RAG 的思路像"开卷考试"：答题前先去资料库里**翻出相关的几
 - *Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks*（Lewis et al., 2020）—— RAG 原始论文，提出 retrieve + generate 框架。
 - *Dense Passage Retrieval for Open-Domain Question Answering*（Karpukhin et al., 2020）—— 用 dense embedding 做语义检索（DPR）。
 - 各向量数据库 / RAG 框架官方文档（如 FAISS、LangChain、LlamaIndex）—— 工程实现与 chunking / 检索参数实践 ⚠️待核实（API 与默认参数随版本变化，使用时查最新文档）。
+- *ai-engineering-from-scratch*（rohitg00）Phase 11 `06-rag`、Phase 5 `23-chunking-strategies-rag` —— RAG 流程与 chunking 策略（recursive 默认、size、overlap 争议）。本次 chunking 加料依据，已对照核对。

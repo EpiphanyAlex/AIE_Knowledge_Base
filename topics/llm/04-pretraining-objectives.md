@@ -4,7 +4,7 @@ domain: llm
 difficulty: 基础
 status: drafted
 prerequisites: [tokenization-embeddings]
-tags: [pretraining, next-token-prediction, causal-lm, masked-lm, self-supervised]
+tags: [pretraining, next-token-prediction, causal-lm, masked-lm, self-supervised, scaling-laws, chinchilla, data-pipeline, SFT]
 ---
 
 # 预训练与训练目标
@@ -63,8 +63,24 @@ BERT 类用的是 **masked language modeling (MLM)**：
 **7. 预训练数据规模与 scaling 直觉**
 经验规律（scaling laws）：**模型变大 + 数据变多 + 算力变多，loss 会以可预测的方式持续下降**，能力随之提升。
 - 直觉：更多数据 → 见过更多模式；更大模型 → 能记/能学更多。
-- ⚠️待核实：具体的"最优模型大小 vs 数据量"配比（如 Chinchilla 提出的 token 数与参数量大致成比例的结论）属于会随研究更新的数字结论，引用前需核对原始论文。
+- **compute-optimal（Chinchilla 结论，已核对）**：给定固定算力预算，应该把"参数量"和"训练 token 数"**一起按比例放大**，而不是只把模型堆大。经验启发值约 **20 tokens / 参数**（rule of thumb，不是精确定律）。论文还指出当年的 GPT-3 其实"训练不足（undertrained）"——参数大但数据没喂够。
+- 起源：scaling 直觉来自 *Kaplan et al. 2020*；"配比要平衡"的修正来自 *Chinchilla / Hoffmann et al. 2022*（两处引用与结论均已对照 repo 核对）。
 - ⚠️待核实：各家前沿模型的**具体参数量、训练 token 数、数据集大小**多未完全公开或随版本变化，截至 2026-06 不要凭记忆给出确切数字。
+
+**8. 预训练数据是怎么"洗"出来的（data pipeline）**
+"喂什么数据"和"喂多少"一样重要。常见的预训练数据流水线：
+- **清洗（cleaning）**：去 HTML 标签、统一空白、去掉非文本内容。
+- **质量过滤（quality filtering）**：用启发式规则筛掉低质内容（全大写的 SEO 垃圾、特殊符号比例过高、太短的残句等）。
+- **去重（deduplication）**：精确去重（如哈希）+ 近似去重（MinHash + LSH 找高度相似文档）。重复数据会让模型倾向"背原文"、又浪费算力——Llama 据称靠去重删掉了约 1/3 的网页数据。
+- **打包（sequence packing）**：把多篇短文档拼进一条训练序列（中间用 EOS 隔开），并用 mask 防止跨文档"串味"，提高 GPU 利用率。
+- **数据配比（data mixing）**：按比例混合不同来源（网页 / 代码 / 书籍 / 数学 / 多语言等）。**配比和总量一样关键，且没有公式，要靠实验调。**
+
+**9. 预训练 vs SFT：一句话分界**
+预训练之后常接 **SFT（supervised fine-tuning / 指令微调）**，两者目标不同：
+- 数据：预训练是海量原始文本；SFT 是少量、人工精挑的"指令 → 回答"对（带 chat 模板、system / user / assistant 角色）。
+- loss：预训练对**每个 token** 算 loss；SFT 通常**只对"回答"部分**算 loss（把指令部分 mask 掉）。
+- 目标：一句话——**"预训练给知识，SFT 给规矩（manners）"**。SFT 主要教模型"如何回应指令"这一**行为**，**基本不灌新知识**。
+（更深入的微调方法 LoRA / RLHF / DPO 见 `09-finetuning`。）
 
 ## 面试问答卡
 
@@ -80,9 +96,11 @@ BERT 类用的是 **masked language modeling (MLM)**：
 - 预训练贵、一般只做一次；微调便宜，可针对不同需求做很多次。
 **追问 / 深入 (中):**
 - 追问"为什么不直接为每个任务从头训练？" → 从头训太贵，且单任务数据太少学不到通用能力；预训练一次、到处微调，复用了通用基础，成本和效果都更好。
+- 追问"SFT（指令微调）到底改了什么？" → 主要改"行为 / 风格"（学会听指令、按格式回答），**基本不灌新知识**；常说"预训练给知识，SFT 给规矩"，loss 通常只算在"回答"部分。
 **常见误区 (中):**
 - 以为微调会"重新学语言"；其实它只在已有通用能力上做小幅适配。
 - 把 fine-tuning 和 prompt/in-context learning 混为一谈：微调改权重，prompt 不改权重。
+- 以为 SFT 能给模型"补知识"；它主要教行为，新知识基本来自预训练（要补知识用 RAG 或继续预训练）。
 
 ### Q2. What is self-supervised learning and why does it not need human labels? / 什么是自监督学习？为什么它不需要人工标注？
 **难度:** 基础
@@ -149,17 +167,36 @@ BERT 类用的是 **masked language modeling (MLM)**：
 **难度:** 进阶
 **Answer (EN):**
 - Scaling laws say that as model size, data, and compute grow, the loss goes down in a predictable way.
-- More data means more patterns seen; a bigger model can learn and store more.
-- The exact "best size vs. data" ratio and the exact numbers for frontier models change over time, so quote them carefully. (⚠️to verify)
+- Chinchilla's key point: for a fixed compute budget, scale parameters AND training tokens together, not just the model. A rough rule of thumb is about 20 tokens per parameter.
+- So a model can be "undertrained" if it is big but hasn't seen enough data (the paper argued GPT-3 was undertrained).
+- The exact numbers for frontier models change over time, so quote them carefully.
 **核心答案 (中):**
 - scaling laws：模型、数据、算力一起变大，loss 会**可预测地**下降，能力随之提升。
-- 更多数据 → 见过更多模式；更大模型 → 能学/能记更多。
-- "最优大小 vs 数据量"的具体配比、前沿模型的确切数字会随研究/版本变化，引用要谨慎（⚠️待核实）。
+- Chinchilla 核心结论：给定算力预算，要把**参数量和训练 token 数一起按比例放大**，而非只堆大模型；经验启发值约 **20 tokens / 参数**（rule of thumb）。
+- 所以模型可能"训练不足（undertrained）"——参数大但数据没喂够（论文称当年 GPT-3 就是如此）。
+- 前沿模型的确切数字会随版本变化，引用要谨慎。
 **追问 / 深入 (中):**
-- 追问"是不是模型越大越好？" → 不一定。给定算力预算，盲目堆大而数据不够，效果不如把参数量和数据量**配比**调好（Chinchilla 类结论，⚠️待核实具体配比）。
+- 追问"是不是模型越大越好？" → 不一定。给定算力预算，盲目堆大而数据不够，效果不如按 ~20:1（token : 参数）量级把数据和参数**配比**好（Chinchilla 结论，已对照 repo 核对；20 是启发值，不是定律）。
 **常见误区 (中):**
 - 以为只要参数量大就一定强；数据量和数据质量同样关键，且要和模型大小匹配。
 - 凭记忆报某模型的确切参数量 / 训练 token 数；这些数字多未公开或随版本变化（⚠️待核实）。
+
+### Q7. How is pretraining data prepared (the data pipeline)? / 预训练数据是怎么准备的（data pipeline）？
+**难度:** 进阶
+**Answer (EN):**
+- Clean the raw text (strip HTML, normalize whitespace), then filter out low-quality junk with simple heuristics.
+- Deduplicate: exact duplicates plus near-duplicates (e.g. MinHash + LSH), because repeated data wastes compute and causes memorization.
+- Pack multiple short documents into one training sequence (separated by an EOS token) to use the GPU well.
+- Mix sources by ratio (web, code, books, math, multilingual); the mix ratio matters as much as the total size and is tuned by experiment.
+**核心答案 (中):**
+- 先清洗（去 HTML、统一空白），再用启发式规则过滤低质内容。
+- 去重：精确 + 近似去重（如 MinHash + LSH）；重复数据浪费算力、导致死记硬背。
+- 把多篇短文档打包进一条序列（用 EOS 隔开），提高 GPU 利用率。
+- 按比例混合多来源（网页 / 代码 / 书 / 数学 / 多语言）；**配比和总量一样重要**，靠实验调。
+**追问 / 深入 (中):**
+- 追问"为什么去重这么重要？" → 重复样本会让模型倾向"背原文"而非学规律，还浪费算力；近似去重能抓到"几乎一样但不完全相同"的文档。
+**常见误区 (中):**
+- 以为"数据越多越好"；脏数据、重复数据会拖累效果，质量和配比比单纯堆量更关键。
 
 ## 速记 / 口述版（EN 为主 + 中文对照）
 > 面试能脱口而出的英文短稿，每句配中文
@@ -175,9 +212,12 @@ BERT 类用的是 **masked language modeling (MLM)**：
   (中) 预测下一个词听起来简单，但要做好就逼着模型学会语法、事实和推理。
 - (EN) "We train it with cross-entropy loss, which pushes the probability of the correct next token higher."
   (中) 用 cross-entropy loss 训练，让正确下一个 token 的概率变高。
+- (EN) "Scaling laws say scale model and data together; Chinchilla showed many models were undertrained — roughly 20 tokens per parameter is a rule of thumb."
+  (中) scaling laws 说模型和数据要一起放大；Chinchilla 指出很多模型训练不足——经验上约 20 tokens/参数。
 
 ## 延伸阅读
 - *Improving Language Understanding by Generative Pre-Training*（GPT-1，Radford et al., 2018）—— 生成式预训练 + next-token prediction 的代表。
 - *BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding*（Devlin et al., 2018）—— masked language modeling 原论文。
-- *Scaling Laws for Neural Language Models*（Kaplan et al., 2020）—— scaling 直觉的来源（具体数字 ⚠️待核实）。
-- *Training Compute-Optimal Large Language Models*（Chinchilla，Hoffmann et al., 2022）—— 参数量与数据量配比（具体结论 ⚠️待核实）。
+- *Scaling Laws for Neural Language Models*（Kaplan et al., 2020）—— "模型越大 loss 越低"的 scaling 直觉来源（引用已核对；具体数值随设置变化）。
+- *Training Compute-Optimal Large Language Models*（Chinchilla，Hoffmann et al., 2022）—— compute-optimal：参数量与 token 数按比例放大，约 20 tokens/参数（引用与结论已对照 repo 核对；20 为启发值）。
+- *ai-engineering-from-scratch*（rohitg00）Phase 10 `03-data-pipelines` / `04-pre-training-mini-gpt` / `06-instruction-tuning-sft`、Phase 07 `13-scaling-laws` —— 数据流水线、next-token 预训练、SFT 边界与 scaling laws。本次加料与核对依据。

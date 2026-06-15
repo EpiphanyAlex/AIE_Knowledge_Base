@@ -4,7 +4,7 @@ domain: llm
 difficulty: 进阶
 status: drafted
 prerequisites: [rag-basics]
-tags: [RAG, hybrid-search, reranking, query-rewriting, chunking-strategy, evaluation]
+tags: [RAG, hybrid-search, reranking, query-rewriting, chunking-strategy, evaluation, RRF, ColPali, vision-rag, late-interaction]
 ---
 
 # RAG 进阶
@@ -20,7 +20,7 @@ tags: [RAG, hybrid-search, reranking, query-rewriting, chunking-strategy, evalua
 
 - **dense（稠密）检索**：用 embedding 把 query 和文档都变向量，按语义相似度（如 cosine）找。优点是抓"意思相近"，缺点是对**精确关键词 / 专有名词 / 罕见词 / 代码符号**不敏感。
 - **sparse（稀疏）检索**：以 **BM25** 为代表的关键词检索（基于词频 TF-IDF 思路）。优点是精确命中关键词，缺点是不懂同义改写。
-- **hybrid** = 两路都查，再把分数融合。常见融合法是 **RRF（Reciprocal Rank Fusion，倒数排名融合）**：只看每路给出的**排名**，按 `1/(k+rank)` 求和，不依赖两套分数量纲是否可比，简单稳健。
+- **hybrid** = 两路都查，再把分数融合。常见融合法是 **RRF（Reciprocal Rank Fusion，倒数排名融合）**：只看每路给出的**排名**，按 `1/(k+rank)` 求和（k 是平滑常数，工程上常取 **60**），不依赖两套分数量纲是否可比，简单稳健。
 - 直觉：dense 管"语义近"，sparse 管"词对上"，互补能同时覆盖两类 query。
 
 **2. Reranking（重排）：先粗召回，再精排 top-k**
@@ -47,12 +47,19 @@ tags: [RAG, hybrid-search, reranking, query-rewriting, chunking-strategy, evalua
 - 给每个块附带结构化元数据（如 `source`、`date`、`author`、`doc_type`、权限标签），检索时先按元数据**硬过滤**，再做向量 / 关键词检索。
 - 好处：缩小搜索范围、保证时效（只查最近文档）、做权限隔离（只查用户有权看的）。这是把"语义检索"和"结构化条件"结合的关键工程手段。
 
-**6. 多跳 / multi-hop 检索与 agentic RAG（简述）**
+**6. 视觉原生 RAG：ColPali（处理图表 / 扫描 PDF）**
+
+- 传统 RAG 先把 PDF 做 **OCR → 抽文本 → 切块 → embedding**，但 OCR 会丢图表数据、切块会切断表格行、文本 embedding 看不懂图——**视觉信息全丢了**。
+- **ColPali** 换思路：**直接把每一页当图片**编码（用视觉语言模型如 PaliGemma），每页得到一组 patch 向量；query 也编成若干 token 向量；用 **late interaction（MaxSim）** 打分（沿用 ColBERT 思路）。**完全跳过 OCR**，保留版式、图表、字体、排版。
+- 适合**视觉密集**的文档（财报、论文、带图表的 PDF）。代价：每页存多个向量，**存储显著变大**（可用乘积量化 PQ 压缩）。
+- （多模态本身见 `13-multimodal`；这里聚焦"用视觉做检索"。）
+
+**7. 多跳 / multi-hop 检索与 agentic RAG（简述）**
 
 - 有些问题一次检索答不了，需要**多跳**：先查到中间事实，再用它去查下一步（如"X 公司 CEO 的母校在哪个城市"——先查 CEO，再查母校，再查城市）。
 - **agentic RAG**：把检索当成 LLM 能反复调用的**工具**。模型自己决定是否检索、检索什么、要不要再查一轮、何时停止，可拆解子问题、跨多个数据源。比固定流水线灵活，但更慢、更难控、更贵。
 
-**7. RAG 评估：检索 + 生成两层都要测**
+**8. RAG 评估：检索 + 生成两层都要测**
 
 - **检索质量**：看找回来的块对不对。
   - **recall**（召回率）：该被找到的相关块，有多少被找回来了。
@@ -175,6 +182,23 @@ tags: [RAG, hybrid-search, reranking, query-rewriting, chunking-strategy, evalua
 **常见误区 (中):**
 - 以为 agentic RAG 总比朴素 RAG 好；它只在问题确实需要多步/多源时才划算，简单场景反而是过度工程。
 
+### Q7. What is vision-native RAG (e.g. ColPali), and when is it better than text RAG? / 什么是视觉原生 RAG（如 ColPali）？什么时候比文本 RAG 好？
+**难度:** 高阶
+**Answer (EN):**
+- Normal RAG runs OCR on a PDF, extracts text, chunks it, and embeds the text — which loses charts, table layout, and figures.
+- ColPali instead encodes each page as an image with a vision-language model, getting patch vectors per page; the query becomes token vectors; scoring uses late interaction (MaxSim), the ColBERT pattern.
+- It skips OCR entirely and keeps layout, tables, and figures, so it wins on visually-rich documents (financial reports, papers, scanned PDFs).
+- Cost: many vectors per page, so storage grows a lot (can be compressed with product quantization).
+**核心答案 (中):**
+- 普通 RAG 对 PDF 先 OCR、抽文本、切块、embedding，会丢图表、表格版式和插图。
+- ColPali 改成**把每页当图片**用视觉语言模型编码，得到每页一组 patch 向量；query 编成 token 向量；用 **late interaction（MaxSim）** 打分（ColBERT 思路）。
+- 完全跳过 OCR，保留版式 / 表格 / 图，所以在**视觉密集文档**（财报、论文、扫描件）上更好。
+- 代价：每页多个向量，存储显著变大（可用 PQ 压缩）。
+**追问 / 深入 (中):**
+- 追问"它和普通文本 embedding 检索本质差别？" → 普通是"先把页面转成文本再 embedding 文本"，ColPali 是"直接 embedding 页面图像"，把版式和图表也纳入检索信号。
+**常见误区 (中):**
+- 以为所有文档都该上视觉 RAG；纯文字文档用文本 RAG 更省更快，ColPali 的价值在**图表 / 版式重要**的文档。
+
 ## 速记 / 口述版（EN 为主 + 中文对照）
 > 面试能脱口而出的英文短稿，每句配中文
 - (EN) "Naive RAG often isn't enough. Advanced RAG improves four things: how we chunk, how we query, how we retrieve, and how we evaluate."
@@ -189,9 +213,12 @@ tags: [RAG, hybrid-search, reranking, query-rewriting, chunking-strategy, evalua
   (中) chunking 用父子块：小块检索求精准，命中后把大父块喂给模型补上下文。
 - (EN) "I evaluate two layers: retrieval with recall and precision, and generation with faithfulness — is the answer grounded in the retrieved context, with nothing made up."
   (中) 我分两层评估：检索看 recall 和 precision，生成看 faithfulness——答案是否有据于检索内容、没有编造。
+- (EN) "For documents full of charts and tables, vision-native RAG like ColPali embeds the page image directly instead of OCR-ing it to text."
+  (中) 对图表 / 表格多的文档，用 ColPali 这类视觉原生 RAG 直接 embedding 页面图像，而不是 OCR 成文本。
 
 ## 延伸阅读
 - *Precise Zero-Shot Dense Retrieval without Relevance Labels*（HyDE 原论文，Gao et al., 2022）。
 - *Reciprocal Rank Fusion outperforms Condorcet and individual Rank Learning Methods*（Cormack et al., 2009）—— RRF 融合原论文。
-- *RAGAS: Automated Evaluation of Retrieval Augmented Generation*（RAG 评估框架论文）。⚠️待核实：框架指标与实现细节随版本更新，使用前查最新官方文档。
+- *RAGAS: Automated Evaluation of Retrieval Augmented Generation*（Es et al., EACL 2024 demo）—— reference-free 的 RAG 指标（faithfulness、answer relevancy、context precision/recall）；出处已核对，但**具体指标定义与实现随版本更新**，集成前查官方文档（⚠️待核实实现细节）。
 - BM25 / Okapi BM25（经典稀疏检索打分函数，可查信息检索教材）。
+- *ai-engineering-from-scratch*（rohitg00）Phase 11 `07-advanced-rag` / `10-evaluation`、Phase 12 `23-colpali-vision-native-rag` —— reranking、hybrid+RRF、HyDE、ColPali 视觉检索与 RAG 评估。本次加料与核对依据。

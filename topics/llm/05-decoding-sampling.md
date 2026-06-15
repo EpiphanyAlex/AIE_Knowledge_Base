@@ -4,7 +4,7 @@ domain: llm
 difficulty: 基础
 status: drafted
 prerequisites: []
-tags: [decoding, sampling, temperature, top-p, top-k, beam-search]
+tags: [decoding, sampling, temperature, top-p, top-k, beam-search, constrained-decoding, structured-outputs]
 ---
 
 # 解码与采样策略
@@ -60,6 +60,14 @@ LLM 容易陷入重复（一直说同一句）。常见缓解：
 - **确定性 / 有标准答案**（翻译、代码、抽取、分类、数学）：要稳、要可复现 → 倾向 greedy 或低 temperature（甚至 T=0）、小 top-p。
 - **开放式 / 创意**（写故事、头脑风暴、对话）：要多样、不单调 → 适度 temperature（如 0.7~1.0）+ top-p（如 0.9）。
 > ⚠️待核实：上面括号里的**具体数值**是常见经验区间，不是硬性标准；不同模型/任务最优值不同，需自己调。
+
+**9. constrained / structured decoding（约束解码，让输出一定合法）**
+有时你需要模型输出**严格合法的格式**（如能被解析的 JSON）。光在 prompt 里说"请输出 JSON"只能做到大概靠谱（经验上约 80–90%），偶尔还是跑偏。更硬的办法是在**解码这一步**直接约束：
+- **思路**：在采样前加一层 **logit 处理器**——在每个位置把"会导致非法输出"的 token 的 logit 直接设成 −∞，模型只能在"合法的下一个 token"里选。这是**解码层面**的强制，不是 prompt 层面的请求。
+- **怎么知道哪些 token 合法**：把 JSON Schema / 正则 / 语法编译成状态机——**FSM 引擎**（如 Outlines，把 schema/regex 编译成有限状态机，每步 O(1) 查合法 token）或 **CFG 语法引擎**（如 XGrammar，处理递归的 JSON Schema）；vLLM 等推理引擎内置 guided decoding 后端。
+- **效果**：约束解码能做到**100% 合法**（by construction），代价是要接相应引擎、可能略增开销。
+- **冷知识（面试加分）**：schema 里**字段顺序会影响推理**——把 `answer` 放在 `reasoning` 前面，模型会"先表态再解释"；想让它先想后答就把 `reasoning` 放前面。"schema 字段顺序是逻辑，不只是格式。"
+（应用层的 function calling / tool use、JSON 模式见未来的 "function calling" 主题；这里只讲解码机制。）
 
 ## 面试问答卡
 
@@ -163,6 +171,24 @@ LLM 容易陷入重复（一直说同一句）。常见缓解：
 **常见误区 (中):**
 - 把 frequency penalty 和 presence penalty 当成一回事；前者按**出现次数**叠加惩罚，后者只看**是否出现过**。
 
+### Q7. How do you force an LLM to output valid JSON? (constrained / structured decoding) / 怎么强制 LLM 输出合法 JSON？（约束 / 结构化解码）
+**难度:** 进阶
+**Answer (EN):**
+- Prompting alone ("please output JSON") only gets roughly 80–90% valid — not a contract.
+- Constrained decoding fixes this at the decoding level: a logit processor sets invalid next-tokens to −infinity, so the model can only pick tokens that keep the output valid.
+- Validity is defined by a JSON schema / regex / grammar compiled into a state machine — FSM engines like Outlines, or grammar engines like XGrammar; vLLM has built-in guided decoding.
+- This guarantees 100% valid output by construction, at the cost of wiring in the engine.
+**核心答案 (中):**
+- 只在 prompt 里说"输出 JSON"只能做到约 80–90% 合法，不是"契约"。
+- 约束解码在**解码层**解决：用 logit 处理器把"非法的下一个 token"置成 −∞，模型只能选保持合法的 token。
+- 合法性由 JSON Schema / 正则 / 语法定义，编译成状态机——FSM 引擎（如 Outlines）或语法引擎（如 XGrammar）；vLLM 内置 guided decoding。
+- 这样能 by construction 保证 100% 合法，代价是要接引擎、略增开销。
+**追问 / 深入 (中):**
+- 追问"这和在 prompt 里要求 JSON 有什么本质区别？" → prompt 是"建议"，模型仍可能违反；约束解码是"强制"，从根上不让它生成非法 token，所以 100% 合法。
+- 冷知识：schema 里字段顺序会影响结果——`answer` 在前模型先表态、`reasoning` 在前模型先推理；"字段顺序是逻辑不是格式"。
+**常见误区 (中):**
+- 以为"加一句输出 JSON"就万无一失；高频场景下偶发非法，生产系统要用约束解码或带校验 / 重试的方案兜底。
+
 ## 速记 / 口述版（EN 为主 + 中文对照）
 > 面试能脱口而出的英文短稿，每句配中文
 - (EN) "At each step the model gives a probability distribution over the whole vocabulary. Decoding is how we pick the next token from it."
@@ -175,7 +201,10 @@ LLM 容易陷入重复（一直说同一句）。常见缓解：
   (中) top-k 留固定数量的候选；top-p 按累积概率到 p 为止，会自适应分布。
 - (EN) "For deterministic tasks like code or extraction, use greedy or low temperature. For creative tasks, use moderate temperature with top-p."
   (中) 代码、抽取这类确定性任务用 greedy 或低温；创意任务用适度 temperature 加 top-p。
+- (EN) "To guarantee valid JSON, use constrained decoding — a logit mask that only allows tokens keeping the output valid — not just a prompt asking for JSON."
+  (中) 要保证合法 JSON，用约束解码——一个只允许"保持合法"token 的 logit mask——而不是只在 prompt 里要求 JSON。
 
 ## 延伸阅读
 - *The Curious Case of Neural Text Degeneration*（Holtzman et al., 2019）—— top-p / nucleus sampling 原论文，解释 beam search 为何在开放式生成里退化。
 - *Hugging Face — How to generate text*（generation 策略博客/文档）—— greedy、beam、top-k、top-p 的图解与代码，⚠️待核实具体 API 参数以最新官方文档为准。
+- *ai-engineering-from-scratch*（rohitg00）Phase 5 `20-structured-outputs-constrained-decoding`、Phase 11 `03-structured-outputs` —— 约束 / 结构化解码（logit masking + FSM/语法引擎：Outlines / XGrammar / vLLM guided decoding）。本次"约束解码"加料依据，已对照核对。

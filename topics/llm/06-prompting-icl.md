@@ -4,7 +4,7 @@ domain: llm
 difficulty: 基础
 status: drafted
 prerequisites: []
-tags: [prompting, in-context-learning, few-shot, chain-of-thought, prompt-engineering]
+tags: [prompting, in-context-learning, few-shot, chain-of-thought, prompt-engineering, self-consistency, tree-of-thought, ReAct, context-engineering, lost-in-the-middle]
 ---
 
 # Prompting & In-context Learning
@@ -38,7 +38,7 @@ Review: "Best purchase." → ?
 
 **4. chain-of-thought（CoT，思维链）**
 让模型在给最终答案前，**先一步步写出推理过程**。
-- 最简单的触发方式之一：在 prompt 里加一句 "Let's think step by step."（⚠️待核实：该具体措辞效果来自 Kojima et al. 2022 "zero-shot CoT" 论文，不同模型/版本效果会有差异）。
+- 最简单的触发方式之一：在 prompt 里加一句 "Let's think step by step."（zero-shot CoT，来自 Kojima et al. 2022；**出处已对照 repo 核对**，但具体提升幅度随模型 / 任务而变）。
 - 直觉：把一道难题拆成小步，模型每一步只做一点点，错误更少；尤其对**数学、逻辑、多步推理**类任务帮助明显。
 - 代价：输出更长、更慢、token 更多。
 
@@ -63,6 +63,19 @@ Review: "Best purchase." → ?
 - **fine-tuning**：用数据再训练、**改权重**；能更深地定制风格/任务、省掉每次的长示例；但要数据、算力、时间，且改完不易回退。
 - 经验法则：**先用 prompting（含 few-shot）试**，能解决就别 fine-tune；只有当任务量大、要稳定特定行为、prompt 怎么调都不够时，再考虑 fine-tuning。
 
+**8. 比 CoT 更进阶的推理 prompting（了解即可）**
+CoT 之上还有几种"靠 prompt 提升推理"的常见套路（面试能点到为止）：
+- **self-consistency（自一致）**：对同一题用带随机性的采样跑**多条**推理链，再对最终答案**投票**取多数。比单条 CoT 更稳，代价是多花算力。
+- **tree-of-thought（ToT，思维树）**：把推理展开成**树**——生成多个中间想法、评估、剪枝、再往下探，适合需要搜索 / 回溯的难题。
+- **ReAct（reason + act）**：让模型在"思考 → 调用工具 / 查资料（act）→ 看结果（observe）"之间循环，把推理和**外部工具**结合。这也是 agent 的基础套路（详见 `10-agents`）。
+> 这些都不改权重，仍属 prompting；区别在于"组织推理的结构"。
+
+**9. context engineering（上下文工程）：比 prompt 更大的范畴**
+- **定义**：prompt engineering 只是其中一小块。**context（上下文）= 进到模型窗口里的一切**：system 指令、检索来的文档、工具定义、对话历史、few-shot 示例，以及当前 prompt。怎么**取舍 / 安排**这些，就是 context engineering。
+- **窗口是稀缺资源**：context window 像 RAM——又快又有限。**精挑的 1 万 token 常比硬塞的 10 万 token 更好**；attention 是 O(n²)，塞太多既贵又稀释重点。
+- **lost-in-the-middle（中间被忽略）**：模型对放在**开头和结尾**的信息利用得最好，**放在中间**的容易被忽略（Liu et al. 2023）。实践：最关键的信息放最前 / 最后，query 和最相关内容靠近末尾，别把要点埋在中段。
+- **常见手段**：相关性过滤、动态只挂需要的工具、历史压缩（把旧轮总结掉）、用 2–3 个强 few-shot 例子而不是堆一大段指令。
+
 ## 面试问答卡
 
 ### Q1. What is the difference between zero-shot and few-shot prompting? / zero-shot 和 few-shot prompting 有什么区别？
@@ -76,7 +89,7 @@ Review: "Best purchase." → ?
 - few-shot：prompt 里**给几个做好的例子**，让模型照着做。
 - few-shot 通常能让模型更好地对齐**格式和任务**。
 **追问 / 深入 (中):**
-- 追问"few-shot 给几个例子合适？" → 没有定数，看任务和 context 预算；一般给到能稳定输出格式即可，例子太多会占 context、变慢、也不一定更好。
+- 追问"few-shot 给几个例子合适？" → 没有定数，经验上 **3–5 个**常够用，再多往往收益递减、还占 context、变慢；选**和当前问题相似**的例子通常比随机选更好。
 - 追问"例子顺序重要吗？" → 重要，示例的顺序和选取会影响结果（order/selection sensitivity），是 few-shot 的已知不稳定点。
 **常见误区 (中):**
 - 以为 few-shot 里的"shot"是训练步数；这里 shot 指**prompt 里的示例个数**，不涉及任何训练。
@@ -148,6 +161,41 @@ Review: "Best purchase." → ?
 - 一上来就 fine-tune；很多需求其实好的 prompt + few-shot 就够了，fine-tune 成本和维护负担更大。
 - 以为 fine-tune 能"教给模型新事实"且总比 prompting 准；它更擅长定制**风格/格式/任务行为**，灌注大量新知识不一定可靠，常不如 RAG。
 
+### Q6. Beyond chain-of-thought: what are self-consistency, tree-of-thought, and ReAct? / CoT 之外：self-consistency、tree-of-thought、ReAct 是什么？
+**难度:** 高阶
+**Answer (EN):**
+- Self-consistency samples several reasoning chains for the same question and takes a majority vote on the final answer — more reliable than a single chain, at extra cost.
+- Tree-of-thought expands reasoning into a tree: generate several intermediate thoughts, evaluate, prune, and search — good for problems that need backtracking.
+- ReAct interleaves reasoning with actions: think → call a tool / look something up → observe → repeat. It connects reasoning to external tools and is the basis of agents.
+- All three are prompting (no weight update); they differ in how they structure the reasoning.
+**核心答案 (中):**
+- self-consistency：对同一题采样**多条**推理链，对最终答案**投票**取多数，比单条更稳，代价是多花算力。
+- tree-of-thought：把推理展开成**树**——生成多个想法、评估、剪枝、搜索，适合要回溯的难题。
+- ReAct：在"思考 → 调用工具 / 查资料 → 看结果"之间循环，把推理和**外部工具**结合，是 agent 的基础。
+- 三者都不改权重，仍是 prompting；区别在"组织推理的结构"。
+**追问 / 深入 (中):**
+- 追问"这些是不是都更准但更贵？" → 基本是。self-consistency 和 ToT 用更多算力换稳健 / 搜索能力；简单任务不值得，难推理 / 要回溯时才用。
+**常见误区 (中):**
+- 以为它们改了模型；都只是 prompt 层面"怎么组织推理"，不动权重。
+- 把 ReAct 当成纯推理技巧；它的关键是**接外部工具**（搜索、计算器、API），属于 agent 范畴。
+
+### Q7. What is context engineering, and what is "lost in the middle"? / 什么是 context engineering？什么是 "lost in the middle"？
+**难度:** 进阶
+**Answer (EN):**
+- Context engineering is bigger than prompt engineering: context is everything in the model's window — system instructions, retrieved documents, tool definitions, chat history, few-shot examples, and the prompt.
+- The window is a scarce resource; a curated 10K tokens often beats a dumped 100K, because attention is O(n²) and extra text dilutes the signal.
+- "Lost in the middle" means models use information at the start and end of the context best, and tend to ignore what's in the middle.
+- So put the most important information first or last, keep the query and most-relevant context near the end, and don't bury key points in the middle.
+**核心答案 (中):**
+- context engineering 比 prompt engineering 范畴更大：context = 模型窗口里的一切——system 指令、检索文档、工具定义、对话历史、few-shot、prompt。
+- 窗口是稀缺资源；**精挑的 1 万 token 常比硬塞的 10 万更好**，因为 attention 是 O(n²)，多塞会稀释重点、还贵。
+- "lost in the middle"：模型对放在**开头和结尾**的信息用得最好，**中间**的容易被忽略。
+- 实践：最关键的信息放最前 / 最后，query 和最相关内容靠近末尾，别把要点埋中段。
+**追问 / 深入 (中):**
+- 追问"那是不是 context 越长越好？" → 不是。长 context 既贵又有 lost-in-the-middle 问题；关键是**放什么、放哪**，而不是一味塞满。
+**常见误区 (中):**
+- 以为把所有资料都塞进 context 模型就能用好；位置和相关性比总量更重要。
+
 ## 速记 / 口述版（EN 为主 + 中文对照）
 > 面试能脱口而出的英文短稿，每句配中文
 - (EN) "Prompting means I guide the model with the input text only, without changing the model itself."
@@ -162,8 +210,15 @@ Review: "Best purchase." → ?
   (中) system prompt 设定整段对话的身份和规则；user prompt 是本轮的具体请求。
 - (EN) "I try prompting and few-shot first because it's fast and cheap, and fine-tune only when prompting is not enough."
   (中) 我先用 prompting 和 few-shot，因为快又便宜；只有它不够时才 fine-tune。
+- (EN) "Beyond chain-of-thought there are self-consistency, tree-of-thought, and ReAct — different ways to structure reasoning, still all prompting."
+  (中) CoT 之外还有 self-consistency、tree-of-thought、ReAct——组织推理的不同方式，本质都还是 prompting。
+- (EN) "Context engineering is bigger than the prompt: it's everything in the window. Curate it, and remember models lose information in the middle."
+  (中) context engineering 比 prompt 大：是窗口里的一切。要精挑，并记住模型会忽略放中间的信息。
 
 ## 延伸阅读
 - *Language Models are Few-Shot Learners*（Brown et al., 2020，GPT-3 论文）—— few-shot / in-context learning 的代表性工作。
 - *Chain-of-Thought Prompting Elicits Reasoning in Large Language Models*（Wei et al., 2022）—— CoT 原论文。
-- *Large Language Models are Zero-Shot Reasoners*（Kojima et al., 2022）—— "Let's think step by step" 的 zero-shot CoT 论文（⚠️待核实：具体措辞与提升幅度随模型不同）。
+- *Large Language Models are Zero-Shot Reasoners*（Kojima et al., 2022）—— "Let's think step by step" 的 zero-shot CoT（出处已对照 repo 核对；具体提升幅度随模型 / 任务而变）。
+- *Self-Consistency Improves Chain of Thought Reasoning*（Wang et al., 2023）/ *Tree of Thoughts*（Yao et al., 2023）/ *ReAct*（Yao et al., 2022）—— CoT 之上的进阶推理 prompting。
+- *Lost in the Middle: How Language Models Use Long Contexts*（Liu et al., 2023）—— 长 context 中"中间信息被忽略"的现象。
+- *ai-engineering-from-scratch*（rohitg00）Phase 11 `02-few-shot-cot` / `05-context-engineering` —— few-shot、CoT 出处、进阶推理与 context engineering。本次加料与核对依据。
